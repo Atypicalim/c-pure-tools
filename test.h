@@ -1,4 +1,5 @@
 #include "./files/header.h"
+#include "./files/math.h"
 #include "./files/log.h"
 #include "./files/tools.h"
 #include "./files/object.h"
