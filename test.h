@@ -16,4 +16,7 @@
 #include "./files/array.h"
 #include "./files/time.h"
 #include "./files/timer.h"
+#include "./files/json.h"
+#include "./files/md5.h"
+#include "./files/base64.h"
 #include "./files/helpers.h"

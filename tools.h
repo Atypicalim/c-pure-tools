@@ -3017,6 +3017,1702 @@ void _timer_test_main() {
 #endif
 
 
+// ./files/json.h
+
+// json
+
+// https://github.com/yinghaoyu/TinyJson
+
+#include <stddef.h>  // size_t
+#include <assert.h>  // assert()
+#include <errno.h>   // errno, ERANGE
+#include <math.h>    // HUGE_VAL
+#include <stdio.h>   // sprintf()
+#include <stdlib.h>  // NULL, strtod()
+#include <string.h>  // memcpy()
+#include <stdbool.h>
+
+// JSON has six type of data
+// null, bool, number, string, array, object
+
+typedef enum {
+  JSON_NULL,
+  JSON_BOOLEAN,
+  JSON_NUMBER,
+  JSON_STRING,
+  JSON_ARRAY,
+  JSON_OBJECT
+} JType;
+
+typedef struct JValue JValue;
+typedef struct JMember JMember;
+#define JElement JValue
+
+#define _JSON_MIN_CAPACITY 10
+
+struct JValue
+{
+  union {
+    struct {
+      JMember *m;
+      size_t size;
+      size_t capacity;
+    } o;  // object
+    struct {
+      JValue *e;
+      size_t size;
+      size_t capacity;
+    } a;  // array
+    struct {
+      char *s;
+      size_t len;
+    } s;       // string
+    double n;  // number
+    bool b;  // bool
+  } u;
+  JType type;
+};
+
+struct JMember {
+  char *k;       // key
+  size_t klen;   // key len
+  JValue v;  // value
+};
+
+#define _JSON_NULL "null"
+#define _JSON_TRUE "true"
+#define _JSON_FALSE "false"
+
+enum {
+  JSON_ERROR_OK = 0,
+  JSON_ERROR_EXPECT_VALUE,  // none charactor
+  JSON_ERROR_INVALID_VALUE,
+  JSON_ERROR_ROOT_NOT_SINGULAR,  // over than one charactor
+  JSON_ERROR_NUMBER_TOO_BIG,
+  JSON_ERROR_MISS_QUOTATION_MARK,    // miss match
+  JSON_ERROR_INVALID_STRING_ESCAPE,  // escape code error
+  JSON_ERROR_INVALID_STRING_CHAR,
+  JSON_ERROR_INVALID_UNICODE_HEX,
+  JSON_ERROR_INVALID_UNICODE_SURROGATE,
+  JSON_ERROR_MISS_COMMA_OR_SQUARE_BRACKET,
+  JSON_ERROR_MISS_KEY,
+  JSON_ERROR_MISS_COLON,
+  JSON_ERROR_MISS_COMMA_OR_CURLY_BRACKET,
+};
+
+#define json_init(v)       \
+  do {                     \
+    (v)->type = JSON_NULL; \
+  } while (0)
+
+
+JValue json_new(JType type);
+JType json_type(const JValue *v);
+void json_print(const JValue *v);
+void json_free(JValue *v);
+
+void json_get_null(const JValue *v);
+void json_set_null(JValue *v);
+
+bool json_get_boolean(const JValue *v);
+void json_set_boolean(JValue *v, bool b);
+
+double json_get_number(const JValue *v);
+void json_set_number(JValue *v, double n);
+
+const char *json_get_string(const JValue *v, size_t *len);
+void json_set_string(JValue *v, const char *s, size_t len);
+
+size_t json_array_get_size(const JValue *v);
+size_t json_array_get_capacity(const JValue *v);
+JElement *json_array_get_index(const JValue *v, size_t index);
+void json_array_set_index(JValue *v, size_t index, JElement *);
+void json_array_clear(JValue *v);
+
+size_t json_object_get_size(const JValue *v);
+size_t json_object_get_capacity(const JValue *v);
+JMember *json_object_get_index(const JValue *v, size_t index);
+void json_object_set_index(JValue *v, size_t index, JMember *);
+void json_object_clear(JValue *v);
+
+bool json_is_equal(const JValue *lhs, const JValue *rhs);
+void json_move(JValue *dst, JValue *src);
+void json_copy(JValue *dst, const JValue *src);
+void json_swap(JValue *lhs, JValue *rhs);
+
+///////////////////////////////////////////////////////////////////
+
+#ifndef JSON_ERROR_STACK_INIT_SIZE
+#define JSON_ERROR_STACK_INIT_SIZE 256
+#endif
+
+#ifndef JSON_ERROR_STRINGIFY_INIT_SIZE
+#define JSON_ERROR_STRINGIFY_INIT_SIZE 256
+#endif
+
+#define _JSON_EXPECT(c, ch)         \
+  do {                        \
+    assert(*c->json == (ch)); \
+    c->json++;                \
+  } while (0)
+
+#define _JSON_IS0TO9(ch) ((ch) >= '0' && (ch) <= '9')
+#define _JSON_IS1TO9(ch) ((ch) >= '1' && (ch) <= '9')
+
+#define _JSON_PUT_CHR(c, ch) do { *(char *) json_context_push(c, sizeof(char)) = (ch); } while (0)
+#define _JSON_PUT_STR(c, s, len) memcpy(json_context_push(c, len), s, len)
+
+typedef struct
+{
+  const char *json;
+  char *stack;
+  size_t size, top;  // size表示栈的容量
+} json_context;
+
+// 进栈size个字符
+static void *json_context_push(json_context *c, size_t size) {
+    void *ret;
+    assert(size > 0);
+    if (c->top + size >= c->size) {
+        if (c->size == 0) {
+        c->size = JSON_ERROR_STACK_INIT_SIZE;
+        }
+        while (c->top + size >= c->size) {  // 扩容
+        c->size += c->size >> 1; /* c->size * 1.5 */
+        }
+        c->stack = (char *) realloc(c->stack, c->size);
+    }
+    ret = c->stack + c->top;
+    c->top += size;
+    return ret;
+}
+
+// 出栈size个字符
+static void *json_context_pop(json_context *c, size_t size) {
+    assert(c->top >= size);
+    return c->stack + (c->top -= size);
+}
+
+static void json_parse_whitespace(json_context *c) {
+    const char *p = c->json;
+    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')
+        p++;
+    c->json = p;
+}
+
+static int json_parse_literal(json_context *c, JValue *v, const char *literal, JType type) {
+    size_t i;
+    _JSON_EXPECT(c, literal[0]);
+    // end with '\0', '\0' ASCII == 0
+    for (i = 0; literal[i + 1]; i++) {
+        if (c->json[i] != literal[i + 1]) {
+        return JSON_ERROR_INVALID_VALUE;
+        }
+    }
+    c->json += i;
+    v->type = type;
+    return JSON_ERROR_OK;
+}
+
+static int json_parse_boolean(json_context *c, JValue *v, const char *check, bool b) {
+    const char *p = c->json;
+    if (strcmp(p, check) == 1) {
+        c->json += strlen(check);
+        v->type = JSON_BOOLEAN;
+        v->u.b = b;
+        return JSON_ERROR_OK;
+    }
+    return JSON_ERROR_INVALID_VALUE;
+}
+
+static int json_parse_number(json_context *c, JValue *v) {
+    const char *p = c->json;
+    if (*p == '-') {  // 负数
+        p++;
+    }
+    if (*p == '0') {  // 只有单个0，不能有前导0，比如0123
+        p++;
+    } else {
+        // 一个 1-9
+        if (!_JSON_IS1TO9(*p)) {
+        return JSON_ERROR_INVALID_VALUE;
+        }
+        // 一个 1-9 再加上任意数量的 digit
+        for (p++; _JSON_IS0TO9(*p); p++) {
+        }
+    }
+    if (*p == '.') {
+        p++;
+        // 小数点后至少应有一个 digit
+        if (!_JSON_IS0TO9(*p)) {
+        return JSON_ERROR_INVALID_VALUE;
+        }
+        for (p++; _JSON_IS0TO9(*p); p++) {
+        }
+    }
+    if (*p == 'e' || *p == 'E') {
+        // 有指数部分
+        p++;
+        if (*p == '+' || *p == '-') {
+        p++;
+        }
+        if (!_JSON_IS0TO9(*p)) {
+        return JSON_ERROR_INVALID_VALUE;
+        }
+        for (p++; _JSON_IS0TO9(*p); p++) {
+        }
+    }
+    errno = 0;
+    v->u.n = strtod(c->json, NULL);
+    if (errno == ERANGE && (v->u.n == HUGE_VAL || v->u.n == -HUGE_VAL)) {
+        return JSON_ERROR_NUMBER_TOO_BIG;
+    }
+    v->type = JSON_NUMBER;
+    c->json = p;
+    return JSON_ERROR_OK;
+}
+
+// 读取4位16进制数
+static const char *json_parse_hex4(const char *p, unsigned *u) {
+    int i;
+    *u = 0;
+    for (i = 0; i < 4; i++) {
+        char ch = *p++;
+        *u <<= 4;
+        if (ch >= '0' && ch <= '9') {
+        *u |= ch - '0';
+        } else if (ch >= 'A' && ch <= 'F') {
+        *u |= ch - ('A' - 10);
+        } else if (ch >= 'a' && ch <= 'f') {
+        *u |= ch - ('a' - 10);
+        } else {
+        return NULL;
+        }
+    }
+    return p;
+    // 这种方案会错误接受"\u 123"不合法的JSON，因为 strtol() 会跳过开始的空白
+    // 要解决的话，还需要检测第一个字符是否 [0-9A-Fa-f]，或者 !isspace(*p)
+    // char *end;
+    //*u = (unsigned) strtol(p, &end, 16);
+    // return end == p + 4 ? end : NULL;
+}
+
+static void json_encode_utf8(json_context *c, unsigned u) {
+    if (u <= 0x7F) {
+        // 写进一个 char，为什么要做 x & 0xFF 这种操作呢？
+        // 这是因为 u 是 unsigned 类型，一些编译器可能会警告这个转型可能会截断数据
+        _JSON_PUT_CHR(c, u & 0xFF);
+    } else if (u <= 0x7FF) {
+        _JSON_PUT_CHR(c, 0xC0 | ((u >> 6) & 0xFF));
+        _JSON_PUT_CHR(c, 0x80 | (u & 0x3F));
+    } else if (u <= 0xFFFF) {
+        _JSON_PUT_CHR(c, 0xE0 | ((u >> 12) & 0xFF));
+        _JSON_PUT_CHR(c, 0x80 | ((u >> 6) & 0x3F));
+        _JSON_PUT_CHR(c, 0x80 | (u & 0x3F));
+    } else {
+        assert(u <= 0x10FFFF);
+        _JSON_PUT_CHR(c, 0xF0 | ((u >> 18) & 0xFF));
+        _JSON_PUT_CHR(c, 0x80 | ((u >> 12) & 0x3F));
+        _JSON_PUT_CHR(c, 0x80 | ((u >> 6) & 0x3F));
+        _JSON_PUT_CHR(c, 0x80 | (u & 0x3F));
+    }
+}
+
+#define STRING_ERROR(ret) \
+    do {                  \
+        c->top = head;    \
+        return ret;       \
+    } while (0)
+
+static int json_parse_string_raw(json_context *c, char **str, size_t *len) {
+    size_t head = c->top;
+    unsigned u, u2;
+    const char *p;
+    _JSON_EXPECT(c, '\"');
+    p = c->json;
+    for (;;) {
+        char ch = *p++;
+        switch (ch) {
+        case '\"':
+        // 匹配""
+        *len = c->top - head;
+        *str = json_context_pop(c, *len);
+        c->json = p;
+        return JSON_ERROR_OK;
+        case '\\':
+        // 转义字符
+        switch (*p++) {
+        case '\"':
+            _JSON_PUT_CHR(c, '\"');
+            break;
+        case '\\':
+            _JSON_PUT_CHR(c, '\\');
+            break;
+        case '/':
+            _JSON_PUT_CHR(c, '/');
+            break;
+        case 'b':
+            _JSON_PUT_CHR(c, '\b');
+            break;
+        case 'f':
+            _JSON_PUT_CHR(c, '\f');
+            break;
+        case 'n':
+            _JSON_PUT_CHR(c, '\n');
+            break;
+        case 'r':
+            _JSON_PUT_CHR(c, '\r');
+            break;
+        case 't':
+            _JSON_PUT_CHR(c, '\t');
+            break;
+        case 'u':
+            if (!(p = json_parse_hex4(p, &u))) {
+            STRING_ERROR(JSON_ERROR_INVALID_UNICODE_HEX);
+            }
+            // 如果第一个码点在0xD800 ~ 0xDBFF之间
+            if (u >= 0xD800 && u <= 0xDBFF) {
+            /* surrogate pair */
+            // 应该伴随一个 U+DC00 ~ U+DFFF的低级代理项
+            if (*p++ != '\\') {
+                STRING_ERROR(JSON_ERROR_INVALID_UNICODE_SURROGATE);
+            }
+            if (*p++ != 'u') {
+                STRING_ERROR(JSON_ERROR_INVALID_UNICODE_SURROGATE);
+            }
+            if (!(p = json_parse_hex4(p, &u2))) {
+                STRING_ERROR(JSON_ERROR_INVALID_UNICODE_HEX);
+            }
+            if (u2 < 0xDC00 || u2 > 0xDFFF) {
+                STRING_ERROR(JSON_ERROR_INVALID_UNICODE_SURROGATE);
+            }
+            // 计算真实的码点
+            u = (((u - 0xD800) << 10) | (u2 - 0xDC00)) + 0x10000;
+            }
+            json_encode_utf8(c, u);
+            break;
+        default:
+            STRING_ERROR(JSON_ERROR_INVALID_STRING_ESCAPE);
+        }
+        break;
+        case '\0':
+        // 不匹配""
+        STRING_ERROR(JSON_ERROR_MISS_QUOTATION_MARK);
+        default:
+        // char 带不带符号，是实现定义的。
+        // 如果编译器定义 char 为带符号的话，(unsigned char)ch >= 0x80 的字符，都会变成负数，并产生 json_PARSE_INVALID_STRING_CHAR 错误。
+        // 我们现时还没有测试 ASCII 以外的字符，所以有没有转型至不带符号都不影响，但开始处理 Unicode 的时候就要考虑了
+        if ((unsigned char) ch < 0x20) {
+            STRING_ERROR(JSON_ERROR_INVALID_STRING_CHAR);
+        }
+        _JSON_PUT_CHR(c, ch);  // 把字符进栈
+        }
+    }
+}
+
+static int json_parse_string(json_context *c, JValue *v) {
+    int ret;
+    char *s;
+    size_t len;
+    if ((ret = json_parse_string_raw(c, &s, &len)) == JSON_ERROR_OK)
+        json_set_string(v, s, len);
+    return ret;
+}
+
+static int json_parse_value(json_context *c, JValue *v);
+
+static int json_parse_array(json_context *c, JValue *v) {
+    size_t size = 0;
+    int i, ret;
+    _JSON_EXPECT(c, '[');
+    // 解析空白字符
+    json_parse_whitespace(c);
+    if (*c->json == ']') {
+        // 数组内没有元素
+        c->json++;
+        v->type = JSON_ARRAY;
+        v->u.a.size = 0;
+        v->u.a.e = NULL;
+        return JSON_ERROR_OK;
+    }
+    for (;;) {
+        JValue e;
+        json_init(&e);
+        // buggy
+        // 因为 json_parse_value() 及之下的函数都需要调用 json_context_push()
+        // 而 json_context_push() 在发现栈满了的时候会用 realloc() 扩容。
+        // 这时候，我们上层的 e 就会失效
+
+        // JValue *e = json_context_push(c, sizeof(JValue));  // 可能会失效
+        // json_init(e);
+        // size++;
+        // if ((ret = json_parse_value(c, e)) != json_PARSE_OK)  // 可能会realloc()
+        //  return ret;
+
+        if ((ret = json_parse_value(c, &e)) != JSON_ERROR_OK) {
+        break;
+        }
+        // 解析空白字符
+        json_parse_whitespace(c);
+        memcpy(json_context_push(c, sizeof(JValue)), &e, sizeof(JValue));
+        size++;
+        if (*c->json == ',') {
+        c->json++;
+        // 解析空白字符
+        json_parse_whitespace(c);
+        } else if (*c->json == ']') {
+        // 数组结束
+        c->json++;
+        v->type = JSON_ARRAY;
+        v->u.a.size = size;
+        // size 表示的是元素的数量
+        size *= sizeof(JValue);
+        memcpy(v->u.a.e = (JValue *) malloc(size), json_context_pop(c, size), size);
+        return JSON_ERROR_OK;
+        } else {
+        // 不匹配 ']'
+        ret = JSON_ERROR_MISS_COMMA_OR_SQUARE_BRACKET;
+        break;
+        }
+    }
+    /* Pop and free values on the stack */
+    for (i = 0; i < size; i++) {
+        json_free((JValue *) json_context_pop(c, sizeof(JValue)));
+    }
+    return ret;
+}
+
+static int json_parse_object(json_context *c, JValue *v) {
+    size_t i, size;
+    JMember m;
+    int ret;
+    _JSON_EXPECT(c, '{');
+    json_parse_whitespace(c);
+    if (*c->json == '}') {
+        c->json++;
+        v->type = JSON_OBJECT;
+        v->u.o.m = 0;
+        v->u.o.size = 0;
+        return JSON_ERROR_OK;
+    }
+    m.k = NULL;
+    size = 0;
+    for (;;) {
+        char *str;
+        json_init(&m.v);
+        /* parse key */
+        if (*c->json != '"') {
+            ret = JSON_ERROR_MISS_KEY;
+            break;
+        }
+        if ((ret = json_parse_string_raw(c, &str, &m.klen)) != JSON_ERROR_OK) {
+            break;
+        }
+        memcpy(m.k = (char *) malloc(m.klen + 1), str, m.klen);
+        m.k[m.klen] = '\0';
+        /* parse ws colon ws */
+        json_parse_whitespace(c);
+        if (*c->json != ':') {
+            ret = JSON_ERROR_MISS_COLON;
+            break;
+        }
+        c->json++;
+        json_parse_whitespace(c);
+        /* parse value */
+        if ((ret = json_parse_value(c, &m.v)) != JSON_ERROR_OK) {
+            break;
+        }
+        memcpy(json_context_push(c, sizeof(JMember)), &m, sizeof(JMember));
+        size++;
+        m.k = NULL; /* ownership is transferred to member on stack */
+                    /* parse ws [comma | right-curly-brace] ws */
+        json_parse_whitespace(c);
+        if (*c->json == ',') {
+            c->json++;
+            json_parse_whitespace(c);
+        } else if (*c->json == '}') {
+            size_t s = sizeof(JMember) * size;
+            c->json++;
+            v->type = JSON_OBJECT;
+            v->u.o.size = size;
+            memcpy(v->u.o.m = (JMember *) malloc(s), json_context_pop(c, s), s);
+            return JSON_ERROR_OK;
+        } else {
+            ret = JSON_ERROR_MISS_COMMA_OR_CURLY_BRACKET;
+            break;
+        }
+    }
+    /* Pop and free members on the stack */
+    free(m.k);
+    for (i = 0; i < size; i++) {
+        JMember *m = (JMember *) json_context_pop(c, sizeof(JMember));
+        free(m->k);
+        json_free(&m->v);
+    }
+    v->type = JSON_NULL;
+    return ret;
+}
+
+static int json_parse_value(json_context *c, JValue *v) {
+    switch (*c->json) {
+    case 't':
+        return json_parse_boolean(c, v, _JSON_TRUE, true);
+    case 'f':
+        return json_parse_boolean(c, v, _JSON_FALSE, true);
+    case 'n':
+        return json_parse_literal(c, v, _JSON_NULL, JSON_NULL);
+    case '"':
+        return json_parse_string(c, v);
+    case '[':
+        return json_parse_array(c, v);
+    case '{':
+        return json_parse_object(c, v);
+    case '\0':
+        return JSON_ERROR_EXPECT_VALUE;
+    default:
+        return json_parse_number(c, v);
+    }
+}
+
+static void json_stringify_string(json_context *c, const char *s, size_t len) {
+    static const char hex_digits[] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
+    size_t i, size;
+    char *head, *p;
+    assert(s != NULL);
+    p = head = json_context_push(c, size = len * 6 + 2); /* "\u00xx..." */
+    *p++ = '"';
+    for (i = 0; i < len; i++) {
+        unsigned char ch = (unsigned char) s[i];
+        switch (ch) {
+        case '\"':
+        *p++ = '\\';
+        *p++ = '\"';
+        break;
+        case '\\':
+        *p++ = '\\';
+        *p++ = '\\';
+        break;
+        case '\b':
+        *p++ = '\\';
+        *p++ = 'b';
+        break;
+        case '\f':
+        *p++ = '\\';
+        *p++ = 'f';
+        break;
+        case '\n':
+        *p++ = '\\';
+        *p++ = 'n';
+        break;
+        case '\r':
+        *p++ = '\\';
+        *p++ = 'r';
+        break;
+        case '\t':
+        *p++ = '\\';
+        *p++ = 't';
+        break;
+        default:
+        if (ch < 0x20) {
+            *p++ = '\\';
+            *p++ = 'u';
+            *p++ = '0';
+            *p++ = '0';
+            *p++ = hex_digits[ch >> 4];
+            *p++ = hex_digits[ch & 15];
+        } else {
+            *p++ = s[i];
+        }
+        }
+    }
+    *p++ = '"';
+    c->top -= size - (p - head);
+}
+
+static void json_stringify_value(json_context *c, const JValue *v) {
+    size_t i;
+    switch (v->type) {
+    case JSON_NULL:
+        _JSON_PUT_STR(c, _JSON_NULL, strlen(_JSON_NULL));
+        break;
+    case JSON_BOOLEAN:
+        if (v->u.b > 0) {
+        _JSON_PUT_STR(c, _JSON_TRUE, strlen(_JSON_TRUE));
+        } else {
+        _JSON_PUT_STR(c, _JSON_FALSE, strlen(_JSON_FALSE));
+        }
+        break;
+    case JSON_NUMBER:
+        c->top -= 32 - sprintf(json_context_push(c, 32), "%.17g", v->u.n);
+        break;
+    case JSON_STRING:
+        json_stringify_string(c, v->u.s.s, v->u.s.len);
+        break;
+    case JSON_ARRAY:
+        _JSON_PUT_CHR(c, '[');
+        for (i = 0; i < v->u.a.size; i++) {
+        if (i > 0)
+            _JSON_PUT_CHR(c, ',');
+        json_stringify_value(c, &v->u.a.e[i]);
+        }
+        _JSON_PUT_CHR(c, ']');
+        break;
+    case JSON_OBJECT:
+        _JSON_PUT_CHR(c, '{');
+        for (i = 0; i < v->u.o.size; i++) {
+        if (i > 0)
+            _JSON_PUT_CHR(c, ',');
+        json_stringify_string(c, v->u.o.m[i].k, v->u.o.m[i].klen);
+        _JSON_PUT_CHR(c, ':');
+        json_stringify_value(c, &v->u.o.m[i].v);
+        }
+        _JSON_PUT_CHR(c, '}');
+        break;
+    default:
+        assert(0 && "invalid type");
+    }
+}
+
+void json_copy(JValue *dst, const JValue *src) {
+    assert(src != NULL && dst != NULL && src != dst);
+    switch (src->type) {
+    case JSON_STRING:
+        json_set_string(dst, src->u.s.s, src->u.s.len);
+        break;
+    case JSON_ARRAY:
+        /* \todo */
+        break;
+    case JSON_OBJECT:
+        /* \todo */
+        break;
+    default:
+        json_free(dst);
+        memcpy(dst, src, sizeof(JValue));
+        break;
+    }
+}
+
+void json_move(JValue *dst, JValue *src) {
+    assert(dst != NULL && src != NULL && src != dst);
+    json_free(dst);
+    memcpy(dst, src, sizeof(JValue));
+    json_init(src);
+}
+
+void json_swap(JValue *lhs, JValue *rhs) {
+    assert(lhs != NULL && rhs != NULL);
+    if (lhs != rhs) {
+        JValue temp;
+        memcpy(&temp, lhs, sizeof(JValue));
+        memcpy(lhs, rhs, sizeof(JValue));
+        memcpy(rhs, &temp, sizeof(JValue));
+    }
+}
+
+bool json_is_equal(const JValue *lhs, const JValue *rhs) {
+    size_t i;
+    assert(lhs != NULL && rhs != NULL);
+    if (lhs->type != rhs->type)
+        return false;
+    switch (lhs->type) {
+    case JSON_STRING:
+        return lhs->u.s.len == rhs->u.s.len && memcmp(lhs->u.s.s, rhs->u.s.s, lhs->u.s.len) == 0;
+    case JSON_NUMBER:
+        return lhs->u.n == rhs->u.n;
+    case JSON_ARRAY:
+        if (lhs->u.a.size != rhs->u.a.size)
+        return false;
+        for (i = 0; i < lhs->u.a.size; i++)
+        if (!json_is_equal(&lhs->u.a.e[i], &rhs->u.a.e[i])) {
+            return false;
+        } else {
+            return true;
+        }
+    case JSON_OBJECT:
+        /* \todo */
+        return true;
+    default:
+        return true;
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////
+
+JValue json_new(JType type) {
+    JValue v;
+    json_init(&v);
+    v.type = type;
+    v.u.b = 0;
+    return v;
+}
+
+JType json_type(const JValue *v) {
+    assert(v != NULL);
+    return v->type;
+}
+
+void json_free(JValue *v) {
+    size_t i;
+    assert(v != NULL);
+    switch (v->type) {
+    case JSON_STRING:
+        free(v->u.s.s);
+        break;
+    case JSON_ARRAY:
+        for (i = 0; i < v->u.a.size; i++) {
+        json_free(&v->u.a.e[i]);
+        }
+        free(v->u.a.e);
+        break;
+    case JSON_OBJECT:
+        for (i = 0; i < v->u.o.size; i++) {
+        free(v->u.o.m[i].k);
+        json_free(&v->u.o.m[i].v);
+        }
+        free(v->u.o.m);
+        break;
+    default:
+        break;
+    }
+    v->type = JSON_NULL;
+}
+
+/////////////////////////////////////////////////////////////////////////////
+
+JValue json_new_null() {
+    JValue v;
+    json_init(&v);
+    v.type = JSON_NULL;
+    return v;
+}
+
+void json_get_null(const JValue *v) {
+    assert(v != NULL && v->type == JSON_NULL);
+}
+
+void json_set_null(JValue *v) {
+    json_free(v);
+    v->type = JSON_NULL;
+}
+
+JValue json_new_boolean(bool b) {
+    JValue v;
+    json_init(&v);
+    v.type = JSON_BOOLEAN;
+    v.u.b = b;
+    return v;
+}
+
+bool json_get_boolean(const JValue *v) {
+    assert(v != NULL && v->type == JSON_BOOLEAN);
+    return v->u.b > 0;
+}
+
+void json_set_boolean(JValue *v, bool b) {
+    json_free(v);
+    v->type = JSON_BOOLEAN;
+    v->u.b = b;
+}
+
+JValue json_new_number(double n) {
+    JValue v;
+    json_init(&v);
+    v.type = JSON_NUMBER;
+    v.u.n = n;
+    return v;
+}
+
+double json_get_number(const JValue *v) {
+    assert(v != NULL && v->type == JSON_NUMBER);
+    return v->u.n;
+}
+
+void json_set_number(JValue *v, double n) {
+    json_free(v);
+    v->type = JSON_NUMBER;
+    v->u.n = n;
+}
+
+/////////////////////////////////////////////////////////////////////////////
+
+
+void __json_set_text_with_length(JValue *v, const char *s, size_t l) {
+    v->u.s.s = (char *) malloc(l + 1);
+    memcpy(v->u.s.s, s, l);
+    v->u.s.s[l] = '\0';
+    v->u.s.len = l;
+}
+
+JValue json_new_string(char *s, size_t l) {
+    JValue v;
+    json_init(&v);
+    v.type = JSON_STRING;
+    __json_set_text_with_length(&v, s, l);
+}
+
+const char *json_get_string(const JValue *v, size_t *l) {
+    assert(v != NULL && v->type == JSON_STRING);
+    if (*l != 0) *l = v->u.s.len;
+    return v->u.s.s;
+}
+
+void json_set_string(JValue *v, const char *s, size_t l) {
+    assert(v != NULL && (s != NULL || l == 0));
+    json_free(v);
+    v->type = JSON_STRING;
+    __json_set_text_with_length(v, s, l);
+}
+
+
+/////////////////////////////////////////////////////////////////////////////
+
+void _json_member_free(JMember *m) {
+    json_free(&m->v);
+    free(m->k);
+}
+
+void _json_element_free(JElement *m) {
+    json_free(m);
+}
+
+void _json_array_check_resize(JValue *v) {
+    assert(v != NULL && v->type == JSON_ARRAY);
+    if (v->u.a.size >= v->u.a.capacity) {
+        v->u.a.capacity = MAX(_JSON_MIN_CAPACITY, v->u.a.size * 1.5);
+        v->u.a.e = (JValue *) realloc(v->u.a.e, v->u.a.capacity * sizeof(JValue));
+    } else if (v->u.a.size < v->u.a.capacity / 2) {
+        v->u.a.capacity = MAX(_JSON_MIN_CAPACITY, v->u.a.size / 2);
+        v->u.a.e = (JValue *) realloc(v->u.a.e, v->u.a.capacity * sizeof(JValue));
+    }
+}
+
+void _json_object_check_resize(JValue *v) {
+    assert(v != NULL && v->type == JSON_OBJECT);
+    if (v->u.o.size >= v->u.o.capacity) {
+        v->u.o.capacity = MAX(_JSON_MIN_CAPACITY, v->u.o.size * 1.5);
+        v->u.o.m = (JMember *) realloc(v->u.o.m, v->u.o.capacity * sizeof(JMember));
+    } else if (v->u.o.size < v->u.o.capacity / 2) {
+        v->u.o.capacity = MAX(_JSON_MIN_CAPACITY, v->u.o.size / 2);
+        v->u.o.m = (JMember *) realloc(v->u.o.m, v->u.o.capacity * sizeof(JMember));
+    }
+}
+
+void json_set_array(JValue *v, size_t capacity) {
+    assert(v != NULL);
+    json_free(v);
+    v->type = JSON_ARRAY;
+    v->u.a.size = 0;
+    v->u.a.capacity = capacity;
+    v->u.a.e = capacity > 0 ? (JValue *) malloc(capacity * sizeof(JValue)) : NULL;
+}
+
+void json_set_object(JValue *v, size_t capacity) {
+    assert(v != NULL);
+    json_free(v);
+    v->type = JSON_OBJECT;
+    v->u.o.size = 0;
+    v->u.o.capacity = capacity;
+    v->u.o.m = capacity > 0 ? (JMember *) malloc(capacity * sizeof(JMember)) : NULL;
+}
+
+/////////////////////////////////////////////////////////////////////////////
+
+void json_object_clear(JValue *v) {
+    assert(v != NULL && v->type == JSON_ARRAY);
+    if (v->u.o.size <= 0) return;
+    for (size_t i = 0; i < v->u.o.size; i++) {
+        _json_member_free(&v->u.o.m[i]);
+    }
+    v->u.o.size = 0;
+    _json_object_check_resize(v);
+}
+
+size_t json_object_get_size(const JValue *v) {
+    assert(v != NULL && v->type == JSON_OBJECT);
+    return v->u.o.size;
+}
+
+size_t json_object_get_capacity(const JValue *v) {
+    assert(v != NULL && v->type == JSON_OBJECT);
+    return v->u.o.capacity;
+}
+
+void json_clear_object(JValue *v) {
+    assert(v != NULL && v->type == JSON_OBJECT);
+    /* \todo */
+}
+
+JMember *json_object_get_index(const JValue *v, size_t index) {
+    assert(v != NULL && v->type == JSON_OBJECT);
+    assert(index < v->u.o.size);
+    return &v->u.o.m[index];
+}
+
+void json_object_del_index(JValue *v, size_t index) {
+    assert(v != NULL && v->type == JSON_OBJECT);
+    if (v->u.a.size <= 0) return;
+    assert(index < v->u.o.size);
+    _json_member_free(&v->u.o.m[index]);
+    for (size_t i = index; i < v->u.o.size-1; i++) {
+        v->u.o.m[i] = v->u.o.m[i+1];
+    }
+    // v->u.o.m[v->u.o.size-1] = NULL;
+    v->u.o.size--;
+}
+
+void json_object_set_index(JValue *v, size_t index, JMember *member) {
+    assert(v != NULL && v->type == JSON_OBJECT);
+    if (v->u.o.size <= 0) return;
+    assert(index < v->u.o.size);
+    if (member == NULL) {
+        json_object_del_index(v, index);
+    } else {
+        _json_member_free(&v->u.o.m[index]);
+        v->u.o.m[index] = *member;
+    }
+}
+
+char *json_object_get_index_key(const JValue *v, size_t index) {
+    assert(index < v->u.o.size);
+    JMember *member = json_object_get_index(v, index);
+    return member->k;
+}
+
+JValue *json_object_get_index_value(const JValue *v, size_t index) {
+    assert(index < v->u.o.size);
+    JMember *member = json_object_get_index(v, index);
+    return &member->v;
+}
+
+size_t json_object_find_key_index(const JValue *v, const char *key) {
+    size_t i;
+    assert(v != NULL && v->type == JSON_OBJECT && key != NULL);
+    size_t len = strlen(key);
+    for (i = 0; i < v->u.o.size; i++)
+        if (v->u.o.m[i].klen == len && memcmp(v->u.o.m[i].k, key, len) == 0){
+        return i;
+        }
+    return -1;
+}
+
+JValue *json_object_find_key_value(JValue *v, const char *key) {
+    size_t index = json_object_find_key_index(v, key);
+    return index != -1 ? json_object_get_index_value(v, index) : NULL;
+}
+
+void json_object_add_member(JValue *v, char *key, JValue *val) {
+    assert(v != NULL && v->type == JSON_ARRAY);
+    _json_object_check_resize(v);
+    json_init(&v->u.o.m[v->u.o.size].v);
+    JMember m;
+    m.k = key;
+    m.klen = strlen(key);
+    m.v = *val;
+    v->u.o.m[v->u.o.size++] = m;
+}
+
+/////////////////////////////////////////////////////////////////////////////
+
+void json_array_clear(JValue *v) {
+    assert(v != NULL && v->type == JSON_ARRAY);
+    if (v->u.a.size <= 0) return;
+    for (size_t i = 0; i < v->u.a.size; i++) {
+        _json_element_free(&v->u.a.e[i]);
+    }
+    v->u.a.size = 0;
+    _json_array_check_resize(v);
+}
+
+size_t json_array_get_size(const JValue *v) {
+    assert(v != NULL && v->type == JSON_ARRAY);
+    return v->u.a.size;
+}
+
+size_t json_array_get_capacity(const JValue *v) {
+    assert(v != NULL && v->type == JSON_ARRAY);
+    return v->u.a.capacity;
+}
+
+JValue *json_array_get_index(const JValue *v, size_t index) {
+    assert(v != NULL && v->type == JSON_ARRAY);
+    assert(index < v->u.a.size);
+    return &v->u.a.e[index];
+}
+
+void json_array_del_index(JValue *v, size_t index) {
+    assert(v != NULL && v->type == JSON_ARRAY);
+    if (v->u.a.size <= 0) return;
+    assert(index < v->u.a.size);
+    _json_element_free(&v->u.a.e[index]);
+    for (size_t i = index; i < v->u.a.size-1; i++) {
+        v->u.a.e[i] = v->u.a.e[i+1];
+    }
+    // v->u.a.e[v->u.a.size-1] = NULL;
+    v->u.a.size--;
+}
+
+void json_array_set_index(JValue *v, size_t index, JElement *element) {
+    assert(v != NULL && v->type == JSON_ARRAY);
+    if (v->u.a.size <= 0) return;
+    assert(index < v->u.a.size);
+    if (element == NULL) {
+        json_array_del_index(v, index);
+    } else {
+        _json_element_free(&v->u.a.e[index]);
+        v->u.a.e[index] = *element;
+    }
+}
+
+void json_array_add_element(JValue *v, JValue *val) {
+    assert(v != NULL && v->type == JSON_ARRAY);
+    _json_array_check_resize(v);
+    json_init(&v->u.a.e[v->u.a.size]);
+    JElement *element = val;
+    v->u.a.e[v->u.a.size++] = *element;
+}
+
+/////////////////////////////////////////////////////////////////////////////
+
+int json_decode(JValue *v, const char *json) {
+    int ret;
+    json_context c;
+    assert(v != NULL);
+    c.json = json;
+    c.stack = NULL;
+    c.size = c.top = 0;
+    json_init(v);
+    json_parse_whitespace(&c);
+    if ((ret = json_parse_value(&c, v)) == JSON_ERROR_OK) {
+        json_parse_whitespace(&c);
+        if (*c.json != '\0') {
+        v->type = JSON_NULL;
+        ret = JSON_ERROR_ROOT_NOT_SINGULAR;
+        }
+    }
+    assert(c.top == 0);
+    free(c.stack);
+    return ret;
+}
+
+int json_encode(char **json, const JValue *v) {
+    json_context c;
+    assert(v != NULL);
+    c.stack = (char *) malloc(c.size = JSON_ERROR_STRINGIFY_INIT_SIZE);
+    c.top = 0;
+    json_stringify_value(&c, v);
+    // length = c.top;
+    _JSON_PUT_CHR(&c, '\0');
+    *json = c.stack;
+    return JSON_ERROR_OK;
+}
+
+/////////////////////////////////////////////////////////////////////////////
+
+#define _JSON_PREFIX " "
+
+void _json_print(const JValue *, char *);
+void _json_print(const JValue *v, char *prefix) {
+    if (v == NULL) return;
+    // 
+    char *_prefix = malloc(strlen(prefix) + strlen(_JSON_PREFIX) + 1);
+    strcpy(_prefix, prefix);
+    strcat(_prefix, _JSON_PREFIX);
+    // 
+    switch (v->type) {
+        case JSON_NULL:
+            printf("%s,\n", _JSON_NULL);
+            break;
+        case JSON_BOOLEAN:
+            printf("%s,\n", v->u.b ? _JSON_TRUE : _JSON_FALSE);
+            break;
+        case JSON_NUMBER:
+            double n = v->u.n;
+            if (n == (int)n) {
+                printf("%d,\n", (int)n);
+            } else {
+                printf("%f,\n", (float)n);
+            }
+            break;
+        case JSON_STRING:
+            printf("\"%s\",\n", v->u.s.s);
+            break;
+        case JSON_ARRAY:
+            printf("[\n");
+            for (int i = 0; i < v->u.a.size; i++) {
+                printf("%s%d: ", _prefix, i);
+                _json_print(&v->u.a.e[i], _prefix);
+            }
+            printf("%s],\n", prefix);
+            break;
+        case JSON_OBJECT:
+            printf("{\n");
+            for (int i = 0; i < v->u.o.size; i++) {
+                printf("%s%s: ", _prefix, v->u.o.m[i].k);
+                _json_print(&v->u.o.m[i].v, _prefix);
+            }
+            printf("%s},\n", prefix);
+            break;
+        default:
+            break;
+    }
+    free(_prefix);
+}
+
+void json_print(const JValue *v) {
+    _json_print(v, _JSON_PREFIX);
+}
+
+/////////////////////////////////////////////////////////////////////////////
+
+
+// ./files/md5.h
+
+// md5
+
+// https://github.com/mackron/md5
+
+#ifndef md5_h
+#define md5_h
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include <stddef.h> /* For size_t and NULL. */
+
+#if defined(_MSC_VER)
+    typedef unsigned __int64   md5_uint64;
+#else
+    typedef unsigned long long md5_uint64;
+#endif
+
+#if !defined(MD5_API)
+    #define MD5_API
+#endif
+
+#define MD5_SIZE            16
+#define MD5_SIZE_FORMATTED  33
+
+typedef struct
+{
+    unsigned int a, b, c, d;    /* Registers. RFC 1321 section 3.3. */
+    md5_uint64 sz;              /* 64-bit size. Since this is library operates on bytes, this is a byte count rather than a bit count. */
+    unsigned char cache[64];    /* The cache will be filled with data, and when full will be processed. */
+    unsigned int cacheLen;      /* Number of valid bytes in the cache. */
+} md5_context;
+
+MD5_API void md5_init(md5_context* ctx);
+MD5_API void md5_update(md5_context* ctx, const void* src, size_t sz);
+MD5_API void md5_finalize(md5_context* ctx, unsigned char* digest);
+MD5_API void md5(unsigned char* digest, const void* src, size_t sz);
+MD5_API void md5_format(char* dst, size_t dstCap, const unsigned char* hash);
+
+#ifdef __cplusplus
+}
+#endif
+#endif  /* md5_h */
+
+#if defined(MD5_IMPLEMENTATION)
+#ifndef md5_c
+#define md5_c
+
+static void md5_zero_memory(void* p, size_t sz)
+{
+    size_t i;
+    for (i = 0; i < sz; i += 1) {
+        ((unsigned char*)p)[i] = 0;
+    }
+}
+
+static void md5_copy_memory(void* dst, const void* src, size_t sz)
+{
+    size_t i;
+    for (i = 0; i < sz; i += 1) {
+        ((unsigned char*)dst)[i] = ((unsigned char*)src)[i];
+    }
+}
+
+
+/* RFC 1321 - Section 3.4. */
+#define MD5_F(x, y, z) ((x & y) | (~x &  z))
+#define MD5_G(x, y, z) ((x & z) | ( y & ~z))
+#define MD5_H(x, y, z) (x ^ y ^ z)
+#define MD5_I(x, y, z) (y ^ (x | ~z))
+
+/*
+RFC 1321 - Section 2.
+
+    Let X <<< s denote the 32-bit value obtained by circularly shifting (rotating) X left by s bit positions.
+*/
+#define MD5_ROTATE_LEFT(x, n)   (((x) << (n)) | ((x) >> (32 - (n))))
+
+/*
+From appendix in RFC 1321.
+*/
+#define MD5_FF(a, b, c, d, x, s, ac)                        \
+    (a) += MD5_F((b), (c), (d)) + (x) + (unsigned int)(ac), \
+    (a)  = MD5_ROTATE_LEFT((a), (s)),                       \
+    (a) += (b)
+
+#define MD5_GG(a, b, c, d, x, s, ac)                        \
+    (a) += MD5_G((b), (c), (d)) + (x) + (unsigned int)(ac), \
+    (a)  = MD5_ROTATE_LEFT((a), (s)),                       \
+    (a) += (b)
+
+#define MD5_HH(a, b, c, d, x, s, ac)                        \
+    (a) += MD5_H((b), (c), (d)) + (x) + (unsigned int)(ac), \
+    (a)  = MD5_ROTATE_LEFT((a), (s)),                       \
+    (a) += (b)
+
+#define MD5_II(a, b, c, d, x, s, ac)                        \
+    (a) += MD5_I((b), (c), (d)) + (x) + (unsigned int)(ac), \
+    (a)  = MD5_ROTATE_LEFT((a), (s)),                       \
+    (a) += (b)
+
+#define MD5_S11 7
+#define MD5_S12 12
+#define MD5_S13 17
+#define MD5_S14 22
+#define MD5_S21 5
+#define MD5_S22 9
+#define MD5_S23 14
+#define MD5_S24 20
+#define MD5_S31 4
+#define MD5_S32 11
+#define MD5_S33 16
+#define MD5_S34 23
+#define MD5_S41 6
+#define MD5_S42 10
+#define MD5_S43 15
+#define MD5_S44 21
+
+static void md5_decode(unsigned int* x, const unsigned char* src)
+{
+    size_t i, j;
+
+    for (i = 0, j = 0; i < 16; i += 1, j += 4) {
+        x[i] = ((unsigned int)src[j+0]) | (((unsigned int)src[j+1]) << 8) | (((unsigned int)src[j+2]) << 16) | (((unsigned int)src[j+3]) << 24);
+    }
+}
+
+/*
+This is the main MD5 function. Everything is processed in blocks of 64 bytes.
+*/
+static void md5_update_block(md5_context* ctx, const unsigned char* src)
+{
+    unsigned int a;
+    unsigned int b;
+    unsigned int c;
+    unsigned int d;
+    unsigned int x[16];
+
+    /* assert(ctx != NULL); */
+    /* assert(src != NULL); */
+
+    a = ctx->a;
+    b = ctx->b;
+    c = ctx->c;
+    d = ctx->d;
+
+    md5_decode(x, src);
+
+    MD5_FF(a, b, c, d, x[ 0], MD5_S11, 0xd76aa478);
+    MD5_FF(d, a, b, c, x[ 1], MD5_S12, 0xe8c7b756);
+    MD5_FF(c, d, a, b, x[ 2], MD5_S13, 0x242070db);
+    MD5_FF(b, c, d, a, x[ 3], MD5_S14, 0xc1bdceee);
+    MD5_FF(a, b, c, d, x[ 4], MD5_S11, 0xf57c0faf);
+    MD5_FF(d, a, b, c, x[ 5], MD5_S12, 0x4787c62a);
+    MD5_FF(c, d, a, b, x[ 6], MD5_S13, 0xa8304613);
+    MD5_FF(b, c, d, a, x[ 7], MD5_S14, 0xfd469501);
+    MD5_FF(a, b, c, d, x[ 8], MD5_S11, 0x698098d8);
+    MD5_FF(d, a, b, c, x[ 9], MD5_S12, 0x8b44f7af);
+    MD5_FF(c, d, a, b, x[10], MD5_S13, 0xffff5bb1);
+    MD5_FF(b, c, d, a, x[11], MD5_S14, 0x895cd7be);
+    MD5_FF(a, b, c, d, x[12], MD5_S11, 0x6b901122);
+    MD5_FF(d, a, b, c, x[13], MD5_S12, 0xfd987193);
+    MD5_FF(c, d, a, b, x[14], MD5_S13, 0xa679438e);
+    MD5_FF(b, c, d, a, x[15], MD5_S14, 0x49b40821);
+
+    MD5_GG(a, b, c, d, x[ 1], MD5_S21, 0xf61e2562);
+    MD5_GG(d, a, b, c, x[ 6], MD5_S22, 0xc040b340);
+    MD5_GG(c, d, a, b, x[11], MD5_S23, 0x265e5a51);
+    MD5_GG(b, c, d, a, x[ 0], MD5_S24, 0xe9b6c7aa);
+    MD5_GG(a, b, c, d, x[ 5], MD5_S21, 0xd62f105d);
+    MD5_GG(d, a, b, c, x[10], MD5_S22, 0x02441453);
+    MD5_GG(c, d, a, b, x[15], MD5_S23, 0xd8a1e681);
+    MD5_GG(b, c, d, a, x[ 4], MD5_S24, 0xe7d3fbc8);
+    MD5_GG(a, b, c, d, x[ 9], MD5_S21, 0x21e1cde6);
+    MD5_GG(d, a, b, c, x[14], MD5_S22, 0xc33707d6);
+    MD5_GG(c, d, a, b, x[ 3], MD5_S23, 0xf4d50d87);
+    MD5_GG(b, c, d, a, x[ 8], MD5_S24, 0x455a14ed);
+    MD5_GG(a, b, c, d, x[13], MD5_S21, 0xa9e3e905);
+    MD5_GG(d, a, b, c, x[ 2], MD5_S22, 0xfcefa3f8);
+    MD5_GG(c, d, a, b, x[ 7], MD5_S23, 0x676f02d9);
+    MD5_GG(b, c, d, a, x[12], MD5_S24, 0x8d2a4c8a);
+
+    MD5_HH(a, b, c, d, x[ 5], MD5_S31, 0xfffa3942);
+    MD5_HH(d, a, b, c, x[ 8], MD5_S32, 0x8771f681);
+    MD5_HH(c, d, a, b, x[11], MD5_S33, 0x6d9d6122);
+    MD5_HH(b, c, d, a, x[14], MD5_S34, 0xfde5380c);
+    MD5_HH(a, b, c, d, x[ 1], MD5_S31, 0xa4beea44);
+    MD5_HH(d, a, b, c, x[ 4], MD5_S32, 0x4bdecfa9);
+    MD5_HH(c, d, a, b, x[ 7], MD5_S33, 0xf6bb4b60);
+    MD5_HH(b, c, d, a, x[10], MD5_S34, 0xbebfbc70);
+    MD5_HH(a, b, c, d, x[13], MD5_S31, 0x289b7ec6);
+    MD5_HH(d, a, b, c, x[ 0], MD5_S32, 0xeaa127fa);
+    MD5_HH(c, d, a, b, x[ 3], MD5_S33, 0xd4ef3085);
+    MD5_HH(b, c, d, a, x[ 6], MD5_S34, 0x04881d05);
+    MD5_HH(a, b, c, d, x[ 9], MD5_S31, 0xd9d4d039);
+    MD5_HH(d, a, b, c, x[12], MD5_S32, 0xe6db99e5);
+    MD5_HH(c, d, a, b, x[15], MD5_S33, 0x1fa27cf8);
+    MD5_HH(b, c, d, a, x[ 2], MD5_S34, 0xc4ac5665);
+
+    MD5_II(a, b, c, d, x[ 0], MD5_S41, 0xf4292244);
+    MD5_II(d, a, b, c, x[ 7], MD5_S42, 0x432aff97);
+    MD5_II(c, d, a, b, x[14], MD5_S43, 0xab9423a7);
+    MD5_II(b, c, d, a, x[ 5], MD5_S44, 0xfc93a039);
+    MD5_II(a, b, c, d, x[12], MD5_S41, 0x655b59c3);
+    MD5_II(d, a, b, c, x[ 3], MD5_S42, 0x8f0ccc92);
+    MD5_II(c, d, a, b, x[10], MD5_S43, 0xffeff47d);
+    MD5_II(b, c, d, a, x[ 1], MD5_S44, 0x85845dd1);
+    MD5_II(a, b, c, d, x[ 8], MD5_S41, 0x6fa87e4f);
+    MD5_II(d, a, b, c, x[15], MD5_S42, 0xfe2ce6e0);
+    MD5_II(c, d, a, b, x[ 6], MD5_S43, 0xa3014314);
+    MD5_II(b, c, d, a, x[13], MD5_S44, 0x4e0811a1);
+    MD5_II(a, b, c, d, x[ 4], MD5_S41, 0xf7537e82);
+    MD5_II(d, a, b, c, x[11], MD5_S42, 0xbd3af235);
+    MD5_II(c, d, a, b, x[ 2], MD5_S43, 0x2ad7d2bb);
+    MD5_II(b, c, d, a, x[ 9], MD5_S44, 0xeb86d391);
+
+    ctx->a += a;
+    ctx->b += b;
+    ctx->c += c;
+    ctx->d += d;
+    
+    /* We'll only ever be calling this if the context's cache is full. At this point the cache will also be empty. */
+    ctx->cacheLen = 0;
+}
+
+MD5_API void md5_init(md5_context* ctx)
+{
+    if (ctx == NULL) {
+        return;
+    }
+
+    md5_zero_memory(ctx, sizeof(*ctx));
+
+    /* RFC 1321 - Section 3.3. */
+    ctx->a  = 0x67452301;
+    ctx->b  = 0xefcdab89;
+    ctx->c  = 0x98badcfe;
+    ctx->d  = 0x10325476;
+    ctx->sz = 0;
+}
+
+MD5_API void md5_update(md5_context* ctx, const void* src, size_t sz)
+{
+    const unsigned char* bytes = (const unsigned char*)src;
+    size_t totalBytesProcessed = 0;
+
+    if (ctx == NULL || (src == NULL && sz > 0)) {
+        return;
+    }
+
+    /* Keep processing until all data has been exhausted. */
+    while (totalBytesProcessed < sz) {
+        /* Optimization. Bypass the cache if there's nothing in it and the number of bytes remaining to process is larger than 64. */
+        size_t bytesRemainingToProcess = sz - totalBytesProcessed;
+        if (ctx->cacheLen == 0 && bytesRemainingToProcess > sizeof(ctx->cache)) {
+            /* Fast path. Bypass the cache and just process directly. */
+            md5_update_block(ctx, bytes + totalBytesProcessed);
+            totalBytesProcessed += sizeof(ctx->cache);
+        } else {
+            /* Slow path. Need to store in the cache. */
+            size_t cacheRemaining = sizeof(ctx->cache) - ctx->cacheLen;
+            if (cacheRemaining > 0) {
+                /* There's still some room left in the cache. Write as much data to it as we can. */
+                size_t bytesToProcess = bytesRemainingToProcess;
+                if (bytesToProcess > cacheRemaining) {
+                    bytesToProcess = cacheRemaining;
+                }
+
+                md5_copy_memory(ctx->cache + ctx->cacheLen, bytes + totalBytesProcessed, bytesToProcess);
+                ctx->cacheLen       += (unsigned int)bytesToProcess;    /* Safe cast. bytesToProcess will always be <= sizeof(ctx->cache) which is 64. */
+                totalBytesProcessed +=               bytesToProcess;
+
+                /* Update the number of bytes remaining in the cache so we can use it later. */
+                cacheRemaining = sizeof(ctx->cache) - ctx->cacheLen;
+            }
+
+            /* If the cache is full, get it processed. */
+            if (cacheRemaining == 0) {
+                md5_update_block(ctx, ctx->cache);
+            }
+        }
+    }
+
+    ctx->sz += sz;
+}
+
+MD5_API void md5_finalize(md5_context* ctx, unsigned char* digest)
+{
+    size_t cacheRemaining;
+    unsigned int szLo;
+    unsigned int szHi;
+
+    if (digest == NULL) {
+        return;
+    }
+
+    if (ctx == NULL) {
+        md5_zero_memory(digest, MD5_SIZE);
+        return;
+    }
+
+    /*
+    Padding must be applied. First thing to do is clear the cache if there's no room for at least
+    one byte. This should never happen, but leaving this logic here for safety.
+    */
+    cacheRemaining = sizeof(ctx->cache) - ctx->cacheLen;
+    if (cacheRemaining == 0) {
+        md5_update_block(ctx, ctx->cache);
+    }
+
+    /* Now we need to write a byte with the most significant bit set (0x80). */
+    ctx->cache[ctx->cacheLen] = 0x80;
+    ctx->cacheLen += 1;
+
+    /* If there isn't enough room for 8 bytes we need to padd with zeroes and get the block processed. */
+    cacheRemaining = sizeof(ctx->cache) - ctx->cacheLen;
+    if (cacheRemaining < 8) {
+        md5_zero_memory(ctx->cache + ctx->cacheLen, cacheRemaining);
+        md5_update_block(ctx, ctx->cache);
+        cacheRemaining = sizeof(ctx->cache);
+    }
+    
+    /* Now we need to fill the buffer with zeros until we've filled 56 bytes (8 bytes left over for the length). */
+    md5_zero_memory(ctx->cache + ctx->cacheLen, cacheRemaining - 8);
+
+    szLo = (unsigned int)(((ctx->sz >>  0) & 0xFFFFFFFF) << 3);
+    szHi = (unsigned int)(((ctx->sz >> 32) & 0xFFFFFFFF) << 3);
+    ctx->cache[56] = (unsigned char)((szLo >>  0) & 0xFF);
+    ctx->cache[57] = (unsigned char)((szLo >>  8) & 0xFF);
+    ctx->cache[58] = (unsigned char)((szLo >> 16) & 0xFF);
+    ctx->cache[59] = (unsigned char)((szLo >> 24) & 0xFF);
+    ctx->cache[60] = (unsigned char)((szHi >>  0) & 0xFF);
+    ctx->cache[61] = (unsigned char)((szHi >>  8) & 0xFF);
+    ctx->cache[62] = (unsigned char)((szHi >> 16) & 0xFF);
+    ctx->cache[63] = (unsigned char)((szHi >> 24) & 0xFF);
+    md5_update_block(ctx, ctx->cache);
+
+    /* Now write out the digest. */
+    digest[ 0] = (unsigned char)(ctx->a >> 0); digest[ 1] = (unsigned char)(ctx->a >> 8); digest[ 2] = (unsigned char)(ctx->a >> 16); digest[ 3] = (unsigned char)(ctx->a >> 24);
+    digest[ 4] = (unsigned char)(ctx->b >> 0); digest[ 5] = (unsigned char)(ctx->b >> 8); digest[ 6] = (unsigned char)(ctx->b >> 16); digest[ 7] = (unsigned char)(ctx->b >> 24);
+    digest[ 8] = (unsigned char)(ctx->c >> 0); digest[ 9] = (unsigned char)(ctx->c >> 8); digest[10] = (unsigned char)(ctx->c >> 16); digest[11] = (unsigned char)(ctx->c >> 24);
+    digest[12] = (unsigned char)(ctx->d >> 0); digest[13] = (unsigned char)(ctx->d >> 8); digest[14] = (unsigned char)(ctx->d >> 16); digest[15] = (unsigned char)(ctx->d >> 24);
+}
+
+MD5_API void md5(unsigned char* digest, const void* src, size_t sz)
+{
+    md5_context ctx;
+    md5_init(&ctx);
+    {
+        md5_update(&ctx, src, sz);
+    }
+    md5_finalize(&ctx, digest);
+}
+
+
+static void md5_format_byte(char* dst, unsigned char byte)
+{
+    const char* hex = "0123456789abcdef";
+    dst[0] = hex[(byte & 0xF0) >> 4];
+    dst[1] = hex[(byte & 0x0F)     ];
+}
+
+MD5_API void md5_format(char* dst, size_t dstCap, const unsigned char* hash)
+{
+    size_t i;
+
+    if (dst == NULL) {
+        return;
+    }
+
+    if (dstCap < MD5_SIZE_FORMATTED) {
+        if (dstCap > 0) {
+            dst[0] = '\0';
+        }
+
+        return;
+    }
+
+    for (i = 0; i < MD5_SIZE; i += 1) {
+        md5_format_byte(dst + (i*2), hash[i]);
+    }
+
+    /* Always null terminate. */
+    dst[MD5_SIZE_FORMATTED-1] = '\0';
+}
+#endif  /* md5_c */
+#endif  /* MD5_IMPLEMENTATION */
+
+
+// ./files/base64.h
+
+// base64
+
+// https://github.com/sebbekarlsson/b64
+
+#include <math.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+const char B64_TABLE[] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+const uint32_t B64_DECODE_TABLE[] = {
+    62, -1, -1, -1, 63, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1,
+    -1, -1, -1, -1, -1, -1, 0,  1,  2,  3,  4,  5,  6,  7,  8,  9,
+    10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+    -1, -1, -1, -1, -1, -1, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35,
+    36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51};
+
+static uint32_t base64_encoded_size(uint32_t len) {
+    uint32_t result = len;
+
+    if (result % 3 != 0) {
+        result += 3 - (len % 3);
+    }
+
+    result /= 3;
+    result *= 4;
+
+    return result;
+}
+
+static uint32_t base64_decoded_size(const char *s) {
+    if (!s)
+        return 0;
+
+    uint32_t len = strlen(s);
+    uint32_t result = len / 4 * 3;
+
+    for (uint32_t i = len; i-- > 0;) {
+        if (s[i] == '=') {
+        result--;
+        } else {
+        break;
+        }
+    }
+
+    return result;
+}
+
+static unsigned int base64_is_valid_char(char c) {
+    return ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') ||
+            (c >= 'a' && c <= 'z') || (c == '+') || (c == '/') || (c == '='));
+}
+
+char *base64_encode(const char *s) {
+    char *out;
+    uint32_t len = strlen(s);
+
+    if (s == 0 || len == 0) {
+        fprintf(stderr, "Error (base64_encode): Invalid input string.\n");
+        return 0;
+    }
+
+    uint32_t elen = base64_encoded_size(len);
+    out = malloc(elen + 1);
+
+    if (!out) {
+        fprintf(
+            stderr,
+            "Error: (base64_encode): Failed to allocate memory for output string.\n");
+    }
+
+    out[elen] = '\0';
+
+    uint32_t v;
+    uint32_t j;
+    uint32_t i;
+    for (i = 0, j = 0; i < len; i += 3, j += 4) {
+        v = s[i];
+        v = i + 1 < len ? v << 8 | s[i + 1] : v << 8;
+        v = i + 2 < len ? v << 8 | s[i + 2] : v << 8;
+
+        out[j] = B64_TABLE[(v >> 18) & 0x3F];
+        out[j + 1] = B64_TABLE[(v >> 12) & 0x3F];
+        if (i + 1 < len) {
+        out[j + 2] = B64_TABLE[(v >> 6) & 0x3F];
+        } else {
+        out[j + 2] = '=';
+        }
+        if (i + 2 < len) {
+        out[j + 3] = B64_TABLE[v & 0x3F];
+        } else {
+        out[j + 3] = '=';
+        }
+    }
+
+    return out;
+}
+
+char *base64_decode(const char *in) {
+    uint32_t len;
+    uint32_t i;
+    uint32_t j;
+    int v;
+
+    if (in == 0) {
+        fprintf(stderr, "Error (base64_decode): Input string is NULL.\n");
+        return 0;
+    }
+
+    len = strlen(in);
+    if (len % 4 != 0) {
+        fprintf(
+            stderr,
+            "Error (base64_decode): Length of input string is not divisible by 4.\n");
+        return 0;
+    }
+
+    for (i = 0; i < len; i++) {
+        if (!base64_is_valid_char(in[i])) {
+        fprintf(stderr, "Error (base64_decode): Invalid input string.\n");
+        return 0;
+        }
+    }
+
+    char *out = (char *)calloc(base64_decoded_size(in) + 1, sizeof(char *));
+
+    if (!out) {
+        fprintf(
+            stderr,
+            "Error (base64_decode): Failed to allocate memory for output string.\n");
+        return 0;
+    }
+
+    for (i = 0, j = 0; i < len; i += 4, j += 3) {
+        v = B64_DECODE_TABLE[in[i] - 43];
+        v = (v << 6) | B64_DECODE_TABLE[in[i + 1] - 43];
+        v = in[i + 2] == '=' ? v << 6 : (v << 6) | B64_DECODE_TABLE[in[i + 2] - 43];
+        v = in[i + 3] == '=' ? v << 6 : (v << 6) | B64_DECODE_TABLE[in[i + 3] - 43];
+
+        out[j] = (v >> 16) & 0xFF;
+        if (in[i + 2] != '=')
+        out[j + 1] = (v >> 8) & 0xFF;
+        if (in[i + 3] != '=')
+        out[j + 2] = v & 0xFF;
+    }
+
+    return out;
+}
+
+
+
 // ./files/helpers.h
 
 // helpers
