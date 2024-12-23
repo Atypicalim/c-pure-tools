@@ -152,15 +152,36 @@ int color_hex_to_int(char *str)
     return result;
 }
 
-void color_hex_to_rgba(unsigned int hex, unsigned char *r, unsigned char *g, unsigned char *b, unsigned char *a) {
+void color_hex_to_argb(unsigned int hex, unsigned char *r, unsigned char *g, unsigned char *b, unsigned char *a) {
     *a = (hex >> 24) & 0xFF;
     *r = (hex >> 16) & 0xFF;
     *g = (hex >> 8) & 0xFF;
     *b = hex & 0xFF;
 }
 
-unsigned int color_rgba_to_hex(unsigned char r, unsigned char g, unsigned char b, unsigned char a) {
+void color_hex_to_rgba(unsigned int hex, unsigned char *r, unsigned char *g, unsigned char *b, unsigned char *a) {
+    *r = (hex >> 24) & 0xFF;
+    *g = (hex >> 16) & 0xFF;
+    *b = (hex >> 8) & 0xFF;
+    *a = hex & 0xFF;
+}
+
+void color_hex_to_rgb(unsigned int hex, unsigned char *r, unsigned char *g, unsigned char *b) {
+    *r = (hex >> 16) & 0xFF;
+    *g = (hex >> 8) & 0xFF;
+    *b = hex & 0xFF;
+}
+
+unsigned int color_argb_to_hex(unsigned char r, unsigned char g, unsigned char b, unsigned char a) {
     return ((unsigned int)a << 24) | ((unsigned int)r << 16) | ((unsigned int)g << 8) | (unsigned int)b;
+}
+
+unsigned int color_rgba_to_hex(unsigned char r, unsigned char g, unsigned char b, unsigned char a) {
+    return ((unsigned int)r << 24) | ((unsigned int)g << 16) | ((unsigned int)b << 8) | (unsigned int)a;
+}
+
+unsigned int color_rgb_to_hex(unsigned char r, unsigned char g, unsigned char b) {
+    return ((unsigned int)r << 16) | ((unsigned int)g << 8) | (unsigned int)b;
 }
 
 char* color_hex_to_str(unsigned int hex) {

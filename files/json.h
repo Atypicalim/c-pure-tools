@@ -980,7 +980,7 @@ JValue *json_object_find_key_value(JValue *v, const char *key) {
 }
 
 void json_object_add_member(JValue *v, char *key, JValue *val) {
-    assert(v != NULL && v->type == JSON_ARRAY);
+    assert(v != NULL && v->type == JSON_OBJECT);
     _json_object_check_resize(v);
     json_init(&v->u.o.m[v->u.o.size].v);
     JMember m;
