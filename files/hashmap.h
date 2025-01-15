@@ -161,6 +161,25 @@ void *Hashmap_del(Hashmap *this, char *_key) {
     return tmp;
 }
 
+#define HASHMAP_FOREACH_START(_map) \
+    int idx = 0; \
+    Hashmap *$map = _map; \
+    Hashkey *$ptr = NULL; \
+    $ptr = $map->bucket[idx]; \
+    while (true) { \
+        if ($ptr == NULL) { \
+            if (idx >= $map->size) { \
+                break; \
+            } \
+            idx++; \
+            $ptr = $map->bucket[idx]; \
+            continue; \
+        }
+
+#define HASHMAP_FOREACH_END \
+        $ptr = $ptr->next; \
+    } \
+
 typedef void (*HASHMAP_FOREACH_FUNC)(Hashkey *, void *);
 
 void Hashmap_foreachItem(Hashmap *this, HASHMAP_FOREACH_FUNC func, void *arg) {

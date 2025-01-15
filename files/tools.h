@@ -6,42 +6,58 @@
 #include "header.h"  // [M[ IGNORE ]M]
 
 // os type
-#define PLATFORM_WINDOWS "PLATFORM_WINDOWS"
-#define PLATFORM_APPLE "PLATFORM_APPLE"
-#define PLATFORM_LINUX "PLATFORM_LINUX"
-#define PLATFORM_UNKNOWN "PLATFORM_UNKNOWN"
+#define PLATFORM_WINDOWS "windows"
+#define PLATFORM_APPLE "apple"
+#define PLATFORM_LINUX "linux"
+#define PLATFORM_UNKNOWN "unknown"
 
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
     #define PLATFORM_NAME PLATFORM_WINDOWS
-    #define IS_WINDOWS
+    #define IS_WINDOWS true
+    #define IS_APPLE false
+    #define IS_LINUX false
+    #define IS_UNKNOWM false
 #elif __APPLE__
     #define PLATFORM_NAME PLATFORM_APPLE
-    #define IS_APPLE
+    #define IS_WINDOWS false
+    #define IS_APPLE true
+    #define IS_LINUX false
+    #define IS_UNKNOWM false
 #elif __linux__ || __unix || __unix__
     #define PLATFORM_NAME PLATFORM_LINUX
-    #define IS_LINUX
+    #define IS_WINDOWS false
+    #define IS_APPLE false
+    #define IS_LINUX true
+    #define IS_UNKNOWM false
 #else
     #define PLATFORM_NAME PLATFORM_UNKNOWN
-    #define IS_UNKNOWM
+    #define IS_WINDOWS false
+    #define IS_APPLE false
+    #define IS_LINUX false
+    #define IS_UNKNOWM true
 #endif
 
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
 
-int pct_cstr_starts_with(const char *s, const char *test)
+bool pct_cstr_equals_with(const char *s, const char *test)
+{
+    return strcmp(s, test) == 0;
+}
+
+bool pct_cstr_starts_with(const char *s, const char *test)
 {
     return strncmp(s, test, strlen(test)) == 0;
 }
 
 /* return 0 for match, nonzero for no match */
-int pct_cstr_ends_with(const char *s, const char *test)
+bool pct_cstr_ends_with(const char *s, const char *test)
 {
     size_t slen = strlen(s);
     size_t tlen = strlen(test);
     if (tlen > slen) return 1;
-    return strcmp(s + slen - tlen, test);
+    return strcmp(s + slen - tlen, test) == 0;
 }
-
 
 void tools_error(const char* msg, ...) {
     va_list lst;
