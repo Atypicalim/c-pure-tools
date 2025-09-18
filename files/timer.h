@@ -16,8 +16,8 @@ typedef struct _Timer {
     TIMER_FUNC func;
 } Timer;
 
-typedef double (*TIMER_CLEAN)(void *);
-typedef double (*TIMER_EACH)(void *);
+typedef void (*TIMER_CLEAN)(void *);
+typedef void (*TIMER_EACH)(void *);
 Timer *_timer_queue_head = NULL;
 
 Timer *_timer_insert(Timer *timer, double seconds) {
