@@ -1,7 +1,6 @@
 // time
 
 #include <time.h>
-#include <sys/time.h>
 
 double time_clock()
 {
@@ -11,9 +10,11 @@ double time_clock()
 }
 
 double time_second() {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return (double)(tv.tv_sec) + (double)(tv.tv_usec / 1000000.0);
+    time_t now;
+    struct tm *local_time;
+    time(&now);
+    local_time = localtime(&now);
+    return local_time->tm_hour * 3600 + local_time->tm_min * 60 + local_time->tm_sec;
 }
 
 int time_zone() {

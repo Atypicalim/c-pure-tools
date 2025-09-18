@@ -19,10 +19,15 @@
 
 #include <math.h>
 #include <time.h>
-#include <unistd.h>
 #include <setjmp.h>
 #include <sys/stat.h>
-#include <sys/time.h>
+
+#ifdef _WIN32
+#include <io.h>
+#include <direct.h>
+#else
+#include <unistd.h>
+#endif
 
 // object types
 #define PCT_OBJ_OBJECT 'O'
@@ -80,6 +85,10 @@ char PCT_TAG_ERROR[] = "[ERROR]";
 #include <ctype.h>
 #include <stdlib.h>
 #include <math.h>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 float math_lerp(float a, float b, float t) {
     return a + (b - a) * t;
@@ -587,30 +596,40 @@ int file_remove(char *path)
 
 bool file_exist(char *path)
 {
-    return access(path, F_OK) == 0;
+    #if IS_WINDOWS
+        return _access(path, 0) != -1;
+    #elif
+        return access(path, F_OK) != -1;
+    #endif
 }
 
 int file_mkdir(const char* name)
 {
-    #ifdef __linux__
-        return mkdir(name, 777); /* Or what parameter you need here ... */
+    #if IS_WINDOWS
+        return _mkdir(name);
     #else
-        return mkdir(name);
+        return mkdir(path, 0755);
     #endif
 }
 
 bool file_is_file(char *path)
 {
-    struct stat path_stat;
-    stat(path, &path_stat);
-    return S_ISREG(path_stat.st_mode);
+    struct stat buf;
+    #if IS_WINDOWS
+        return _stat(path, &buf) == 0 && (buf.st_mode & _S_IFREG);;
+    #elif
+        return stat(filename, &buf) == 0 && S_ISREG(buf.st_mode);;
+    #endif
 }
 
 bool file_is_directory(char *path)
 {
-    struct stat path_stat;
-    stat(path, &path_stat);
-    return S_ISDIR(path_stat.st_mode);
+    struct stat buf;
+    #if IS_WINDOWS
+        return _stat(path, &buf) == 0 && (buf.st_mode & _S_IFDIR);
+    #elif
+        return stat(path, &buf) == 0 && S_ISDIR(buf.st_mode);
+    #endif
 }
 
 int file_create_directory(char *path)
@@ -2821,7 +2840,6 @@ char *Array_toString(Array *this)
 // time
 
 #include <time.h>
-#include <sys/time.h>
 
 double time_clock()
 {
@@ -2831,9 +2849,11 @@ double time_clock()
 }
 
 double time_second() {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return (double)(tv.tv_sec) + (double)(tv.tv_usec / 1000000.0);
+    time_t now;
+    struct tm *local_time;
+    time(&now);
+    local_time = localtime(&now);
+    return local_time->tm_hour * 3600 + local_time->tm_min * 60 + local_time->tm_sec;
 }
 
 int time_zone() {
@@ -4823,7 +4843,7 @@ char *system_execute(char *msg, ...) {
     char *cmd = _tools_format(msg, lst);
 
     FILE *file;
-    if ((file = popen(cmd, "r")) == NULL) {
+    if ((file = _popen(cmd, "r")) == NULL) {
         pct_free(cmd);
         return NULL;
     }
@@ -4835,7 +4855,7 @@ char *system_execute(char *msg, ...) {
     while (fgets(buf, BUFSIZE, file) != NULL) {
         String_appendArr(out, buf);
     }
-    pclose(file);
+    _pclose(file);
     char *text = String_dump(out);
     Object_release(out);
     return text;

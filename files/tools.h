@@ -316,30 +316,40 @@ int file_remove(char *path)
 
 bool file_exist(char *path)
 {
-    return access(path, F_OK) == 0;
+    #if IS_WINDOWS
+        return _access(path, 0) != -1;
+    #elif
+        return access(path, F_OK) != -1;
+    #endif
 }
 
 int file_mkdir(const char* name)
 {
-    #ifdef __linux__
-        return mkdir(name, 777); /* Or what parameter you need here ... */
+    #if IS_WINDOWS
+        return _mkdir(name);
     #else
-        return mkdir(name);
+        return mkdir(path, 0755);
     #endif
 }
 
 bool file_is_file(char *path)
 {
-    struct stat path_stat;
-    stat(path, &path_stat);
-    return S_ISREG(path_stat.st_mode);
+    struct stat buf;
+    #if IS_WINDOWS
+        return _stat(path, &buf) == 0 && (buf.st_mode & _S_IFREG);;
+    #elif
+        return stat(filename, &buf) == 0 && S_ISREG(buf.st_mode);;
+    #endif
 }
 
 bool file_is_directory(char *path)
 {
-    struct stat path_stat;
-    stat(path, &path_stat);
-    return S_ISDIR(path_stat.st_mode);
+    struct stat buf;
+    #if IS_WINDOWS
+        return _stat(path, &buf) == 0 && (buf.st_mode & _S_IFDIR);
+    #elif
+        return stat(path, &buf) == 0 && S_ISDIR(buf.st_mode);
+    #endif
 }
 
 int file_create_directory(char *path)

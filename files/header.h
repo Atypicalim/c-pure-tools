@@ -16,10 +16,15 @@
 
 #include <math.h>
 #include <time.h>
-#include <unistd.h>
 #include <setjmp.h>
 #include <sys/stat.h>
-#include <sys/time.h>
+
+#ifdef _WIN32
+#include <io.h>
+#include <direct.h>
+#else
+#include <unistd.h>
+#endif
 
 // object types
 #define PCT_OBJ_OBJECT 'O'

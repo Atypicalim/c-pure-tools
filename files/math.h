@@ -7,6 +7,10 @@
 #include <stdlib.h>
 #include <math.h>
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 float math_lerp(float a, float b, float t) {
     return a + (b - a) * t;
 }
