@@ -1392,7 +1392,8 @@ unsigned long String_hash(String *this)
 int String_findNext(String *this, int from, char *target)
 {
     int len = strlen(target);
-    if (this->length <= 0 || from < 0 || len <= 0) return -1;
+    if (from < 0) from = from + this->length;
+    if (this->length <= 0 || from < 0 || from > this->length || len <= 0) return -1;
     char *ptr = strstr(this->data + from, target);
     if (ptr == NULL) return -1;
     int pos = ptr - this->data;
@@ -1402,8 +1403,9 @@ int String_findNext(String *this, int from, char *target)
 int String_findLast(String *this, int to, char *target)
 {
     int len = strlen(target);
-    if (this->length <= 0 || to > this->length || len <= 0) return -1;
-    int containIndex = to - len;
+    if (to < 0) to = to + this->length;
+    if (this->length <= 0 || to < 0 || to > this->length || len <= 0) return -1;
+    int containIndex = to - len + 1;
     int nextIndex = this->length - 1;
     int foundIndex = -1;
     char *ptr = NULL;
@@ -1578,7 +1580,7 @@ bool String_startsWith(String *this, char *target)
 
 bool String_endsWith(String *this, char *target)
 {
-    return String_findLast(this, -1, target) == this->length - strlen(target);
+    return String_findLast(this, -1, target) == (this->length - strlen(target));
 }
 
 bool String_contains(String *this, char *target)
