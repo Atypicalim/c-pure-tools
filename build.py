@@ -45,5 +45,6 @@ bldr2.setDebug(True)
 bldr2.setInput("./test.c")
 bldr2.setOutput('test')
 bldr2.start()
-bldr2.run()
+# bldr2.run()
 
+tools.tools.spawn("test.exe", ["-h"])
