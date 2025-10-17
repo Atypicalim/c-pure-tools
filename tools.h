@@ -146,8 +146,9 @@ extern "C" {
 extern "C" {
 #endif
 
-char *CARGS_FORMAT_COMMAND = " -%s, --%s [%s]\n";
-char *CARGS_FORMAT_PARAM = "   -%s, --%s (%s)\n";
+char *CARGS_FORMAT_COMMAND = " -%s --%s [%s]\n";
+char *CARGS_FORMAT_PARAM1 = "   --%s (%s)\n";
+char *CARGS_FORMAT_PARAM2 = "   -%s --%s (%s)\n";
 char *CARGS_LANGUAGE_DEFAULT = "default '%s'";
 char *CARGS_LANGUAGE_REQUIRE = "force required";
 
@@ -274,7 +275,7 @@ bool *cargs_command(const char *letter, const char *name, const char *describe) 
 }
 
 cArgsParam *_cargs_add_param(cArgsType type, const char *letter, const char *name, void *value) {
-	assert(letter != NULL || name != NULL);
+	assert(name != NULL);
 	assert(value != NULL);
 	assert(_cargs_count > 0);
 	cArgsCommand *cmd = &_cargs_list[_cargs_count - 1];
@@ -340,25 +341,22 @@ static cArgsCommand *_cargs_find_command(const char *text) {
 cArgsParam *_cargs_find_param(cArgsCommand *command, const char *text) {
 	if (text == NULL) return NULL;
 	cArgsParam *param = command->params;
-	if (strlen(text) == 1) {
-		while (param != NULL) {
-			if (param->letter && strcmp(param->letter, text) == 0) break;
-			param = param->next;
+	while (param != NULL) {
+		if (strlen(text) == 1) {
+			if (param->letter != NULL && param->letter && strcmp(param->letter, text) == 0) return param;
+		} else {
+			if (param->name != NULL && param->name && strcmp(param->name, text) == 0) return param;
 		}
-	} else {
-		while (param != NULL) {
-			if (param->name && strcmp(param->name, text) == 0) break;
-			param = param->next;
-		}
+		param = param->next;
 	}
-	return param;
+	return NULL;
 }
 
 int _cargs_check_require(cArgs *body, cArgsCommand *command) {
 	cArgsParam *param = command->params;
 	while (param != NULL) {
 		if (!param->found && _cargs_is_non_val(param)) {
-			body->extra = param->name != NULL ? param->name : param->letter;
+			body->extra = param->name;
 			return CARGS_MISSING_PARAM;
 		}
 		param = param->next;
@@ -497,10 +495,8 @@ void cargs_print(FILE *file) {
 	if (!file) file = stdout;
 	for (size_t i = 0; i < _cargs_count; ++ i) {
 		cArgsCommand *command = &_cargs_list[i];
-		char *letter = command->letter != NULL ? command->letter : "?";
-		char *name = command->name != NULL ? command->name : "?";
 		char *describe = command->describe != NULL ? command->describe : "?";
-		fprintf(file, CARGS_FORMAT_COMMAND, letter, name, describe);
+		fprintf(file, CARGS_FORMAT_COMMAND, command->letter, command->name, describe);
 		cArgsParam *param = command->params;
 		while (param != NULL)
 		{
@@ -519,9 +515,11 @@ void cargs_print(FILE *file) {
 				}
 				sprintf(_describe, CARGS_LANGUAGE_DEFAULT, _formatted);
 			}
-			char *letter = param->letter != NULL ? param->letter : "?";
-			char *name = param->name != NULL ? param->name : "?";
-			fprintf(file, CARGS_FORMAT_PARAM, letter, name, _describe);
+			if (param->letter == NULL) {
+				fprintf(file, CARGS_FORMAT_PARAM1, param->name, _describe);
+			} else {
+				fprintf(file, CARGS_FORMAT_PARAM2, param->letter, param->name, _describe);
+			}
 			param = param->next;
 		}
 	}
