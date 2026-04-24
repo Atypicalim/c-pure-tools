@@ -4,6 +4,7 @@
 #include "./files/log.h"
 #include "./files/tools.h"
 #include "./files/object.h"
+#include "./files/gallector.h"
 #include "./files/cstring.h"
 #include "./files/string.h"
 #include "./files/cursor.h"

@@ -19,6 +19,7 @@ void pct_object_free(void *_this)
     Object *this = _this;
     int type = this->objType;
     if (type == PCT_OBJ_OBJECT) return Object_free(this);
+    if (type == PCT_OBJ_GALLECTOR) return Gallector_free((Gallector *)this);
     if (type == PCT_OBJ_STRING) return String_free((String *)this);
     if (type == PCT_OBJ_ARRAY) return Array_free((Array *)this);
     if (type == PCT_OBJ_CURSOR) return Cursor_free((Cursor *)this);

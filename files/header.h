@@ -28,6 +28,7 @@
 
 // object types
 #define PCT_OBJ_OBJECT 'O'
+#define PCT_OBJ_GALLECTOR 'G'
 #define PCT_OBJ_STRING 'S'
 #define PCT_OBJ_ARRAY 'A'
 #define PCT_OBJ_CURSOR 'U'
