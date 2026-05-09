@@ -56,6 +56,15 @@ void pct_free(void *object)
     free(object);
 }
 
+#define PCT_LAMBDA(ret, body) ({ ret __fn__ body &__fn__; })
+#ifndef LAMBDA
+#define LAMBDA PCT_LAMBDA
+#endif
+
+#define PCT_FUNCTION(ret, name, ...) ret (*name)(__VA_ARGS__)
+#ifndef FUNCTION
+#define FUNCTION PCT_FUNCTION
+#endif
 
 // \033[1;31mThis is red text.\033[0m\n
 #define __PCT_COLOR_TAG_BEGIN "\033[1;"
