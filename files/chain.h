@@ -32,14 +32,14 @@ Chain *Chain_new(bool isRetain) {
 
 void _Chain_print(Chain *this, char *flag)
 {
-    printf("[(%s_START) => address:%d]\n", flag, this);
+    printf("[(%s_START) => address:%p]\n", flag, this);
     Block *current = this->head;
     while (current != NULL)
     {
         Block_print(current);
         current = current->next;
     }
-    printf("[(%s_END) => address:%d]\n", flag, this);
+    printf("[(%s_END) => address:%p]\n", flag, this);
 }
 
 void Chain_print(Chain *this) {
@@ -239,7 +239,7 @@ void _Chain_sync(Chain *this, Chain *to) {
 }
 
 Chain *Chain_clone(Chain *this) {
-    Chain *chain = _Chain_new(this->retain, sizeof(Chain), this->objType);
+    Chain *chain = _Chain_new(this->retain, sizeof(Chain), ((Object*)this)->objType);
     _Chain_sync(this, chain);
     return chain;
 }

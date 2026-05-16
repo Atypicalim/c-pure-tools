@@ -827,6 +827,7 @@ JValue json_new_string(char *s, size_t l) {
     json_init(&v);
     v.type = JSON_STRING;
     __json_set_text_with_length(&v, s, l);
+    return v;
 }
 
 const char *json_get_string(const JValue *v, size_t *l) {
@@ -1096,6 +1097,7 @@ void _json_print(const JValue *v, char *prefix) {
     char *_prefix = malloc(strlen(prefix) + strlen(_JSON_PREFIX) + 1);
     strcpy(_prefix, prefix);
     strcat(_prefix, _JSON_PREFIX);
+    double n = v->u.n;
     // 
     switch (v->type) {
         case JSON_NULL:
@@ -1105,7 +1107,6 @@ void _json_print(const JValue *v, char *prefix) {
             printf("%s,\n", v->u.b ? _JSON_TRUE : _JSON_FALSE);
             break;
         case JSON_NUMBER:
-            double n = v->u.n;
             if (n == (int)n) {
                 printf("%d,\n", (int)n);
             } else {

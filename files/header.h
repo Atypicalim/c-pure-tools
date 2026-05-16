@@ -56,6 +56,12 @@ void pct_free(void *object)
     free(object);
 }
 
+#if defined(_WIN32) || defined(_WIN64)
+    #define popen _popen
+    #define pclose _pclose
+#endif
+
+
 #define PCT_LAMBDA(ret, body) ({ ret __fn__ body &__fn__; })
 #ifndef LAMBDA
 #define LAMBDA PCT_LAMBDA

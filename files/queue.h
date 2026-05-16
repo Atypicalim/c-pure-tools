@@ -7,9 +7,7 @@
 #include "cursor.h" // [M[ IGNORE ]M]
 #include "chain.h" // [M[ IGNORE ]M]
 
-typedef struct _Queue {
-    struct _Chain;
-} Queue;
+typedef struct _Chain Queue;
 
 Queue *Queue_new(bool isRetain) {
     return (Queue *)_Chain_new(isRetain, sizeof(Queue), PCT_OBJ_QUEUE);

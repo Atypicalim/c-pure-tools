@@ -124,6 +124,7 @@ char *tools_format(char *msg, ...)
     va_list lst;
     va_start(lst, msg);
     _tools_format(msg, lst);
+    return msg;
 }
 
 void tools_set_env(char *name, char *value) {
@@ -318,7 +319,7 @@ bool file_exist(char *path)
 {
     #if IS_WINDOWS
         return _access(path, 0) != -1;
-    #elif
+    #else
         return access(path, F_OK) != -1;
     #endif
 }
@@ -328,7 +329,7 @@ int file_mkdir(const char* name)
     #if IS_WINDOWS
         return _mkdir(name);
     #else
-        return mkdir(path, 0755);
+        return mkdir(name, 0755);
     #endif
 }
 
@@ -337,8 +338,8 @@ bool file_is_file(char *path)
     struct stat buf;
     #if IS_WINDOWS
         return _stat(path, &buf) == 0 && (buf.st_mode & _S_IFREG);;
-    #elif
-        return stat(filename, &buf) == 0 && S_ISREG(buf.st_mode);;
+    #else
+        return stat(path, &buf) == 0 && S_ISREG(buf.st_mode);;
     #endif
 }
 
@@ -347,7 +348,7 @@ bool file_is_directory(char *path)
     struct stat buf;
     #if IS_WINDOWS
         return _stat(path, &buf) == 0 && (buf.st_mode & _S_IFDIR);
-    #elif
+    #else
         return stat(path, &buf) == 0 && S_ISDIR(buf.st_mode);
     #endif
 }

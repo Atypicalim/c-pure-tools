@@ -7,9 +7,7 @@
 #include "cursor.h" // [M[ IGNORE ]M]
 #include "chain.h" // [M[ IGNORE ]M]
 
-typedef struct _Stack {
-    struct _Chain;
-} Stack;
+typedef struct _Chain Stack;
 
 Stack *Stack_new(bool isRetain) {
     return (Stack *)_Chain_new(isRetain, sizeof(Stack), PCT_OBJ_STACK);

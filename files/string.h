@@ -167,9 +167,10 @@ unsigned long String_hash(String *this)
 {
     char *str = this->data;
     unsigned long hash = 5381;
-    int c;
-    while (c = *str++) {
+    int c = *(str++);
+    while (c) {
         hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
+        c = *(str++);
     }
     return hash;
 }
@@ -332,7 +333,7 @@ String *String_setChar(String *this, int index, char c)
     return this;
 }
 
-String *String_reverse(String *this)
+void String_reverse(String *this)
 {
     int left = 0;
     int right = this->length - 1;
@@ -346,16 +347,22 @@ String *String_reverse(String *this)
     }
 }
 
-String *String_upper(String *this)
+void String_upper(String *this)
 {
     int index = 0;
-    while(index < this->length) this->data[index++] = toupper(this->data[index]);
+    while(index < this->length) {
+        this->data[index] = toupper(this->data[index]);
+        index = index + 1;
+    }
 }
 
-String *String_lower(String *this)
+void String_lower(String *this)
 {
     int index = 0;
-    while(index < this->length) this->data[index++] = tolower(this->data[index]);
+    while(index < this->length) {
+        this->data[index] = tolower(this->data[index]);
+        index = index + 1;
+    }
 }
 
 bool String_startsWith(String *this, char *target)

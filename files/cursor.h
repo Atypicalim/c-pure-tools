@@ -28,7 +28,7 @@ void *Cursor_get(Cursor *this)
 
 void Cursor_print(Cursor *this)
 {
-    printf("[(CURSOR) => p:%s, t:%s]\n", this, this->target);
+    printf("[(CURSOR) => p:%p, t:%p]\n", this, this->target);
 }
 
 void Cursor_free(Cursor *this)

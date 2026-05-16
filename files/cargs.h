@@ -433,6 +433,7 @@ int _cargs_test_main(int argc, const char **argv) {
 	if(path != NULL && path[0] != '\0') {
 		printf("path: %s \n", path);
 	}
+	return 0;
 }
 
 #ifdef __cplusplus

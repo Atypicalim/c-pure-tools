@@ -116,7 +116,7 @@ int Gallector_sweep(Gallector *this)
 
 void Gallector_print(Gallector *this)
 {
-    printf("[(GALLECTOR) => p:%s, s:%d]\n", this, this->numObjects);
+    printf("[(GALLECTOR) => p:%p, s:%d]\n", this, this->numObjects);
 }
 
 void Gallector_free(Gallector *this)

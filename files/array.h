@@ -219,7 +219,7 @@ int Array_find(Array *this, int from, int to, bool isReverse, ArrayFindFunction 
     }
     void *item;
     bool result;
-    for (int i = from; i < to; i + var) {
+    for (int i = from; i < to; i = i + var) {
         item = Array_get(this, i);
         result = func(item);
         if (result) return i;

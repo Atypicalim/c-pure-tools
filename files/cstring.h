@@ -222,7 +222,9 @@ int strchop( const char *string, const char *delimiters, int avail, const char *
     assert( avail >= 4 && 0 == ( avail % 2 ) );
     for( avail /= 2; *string && avail-- > 0; ) {
         int n = strcspn( string += strspn(string, delimiters), delimiters );
-        *tokens++ = (*tokens++ = (const char *)(uintptr_t)n) ? string : "";
+        const char *temp = (const char *)(uintptr_t)n;
+        *tokens = temp != NULL ? string : "";
+        tokens++;
         string += n;
     }
     return *tokens++ = 0, *tokens = 0, avail > 0;

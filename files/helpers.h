@@ -52,7 +52,7 @@ char *system_execute(char *msg, ...) {
     char *cmd = _tools_format(msg, lst);
 
     FILE *file;
-    if ((file = _popen(cmd, "r")) == NULL) {
+    if ((file = popen(cmd, "r")) == NULL) {
         pct_free(cmd);
         return NULL;
     }
@@ -64,7 +64,7 @@ char *system_execute(char *msg, ...) {
     while (fgets(buf, BUFSIZE, file) != NULL) {
         String_appendArr(out, buf);
     }
-    _pclose(file);
+    pclose(file);
     char *text = String_dump(out);
     Object_release(out);
     return text;

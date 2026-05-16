@@ -140,7 +140,7 @@ void log_set_color(bool enabled) {
   L.color = enabled;
 }
 
-int log_set_file(char *path) {
+void log_set_file(char *path) {
   if (!path) {
     L.file = NULL;
   } else {
@@ -148,6 +148,6 @@ int log_set_file(char *path) {
   }
 }
 
-int log_set_func(log_Func *func) {
+void log_set_func(log_Func *func) {
   L.callbacks = *func;
 }

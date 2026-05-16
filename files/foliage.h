@@ -35,7 +35,7 @@ void Foliage_print(void *_this)
     else
     {
         Foliage *this = _this;
-        printf("[(Foliage) => address:%d, data:%d]\n", this, this->data);
+        printf("[(Foliage) => address:%p, data:%p]\n", this, this->data);
     }
 }
 
